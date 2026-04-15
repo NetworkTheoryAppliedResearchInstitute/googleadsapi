@@ -1,0 +1,30 @@
+# Google Ads API credentials — copy to ~/google-ads.yaml and fill in your values.
+# Do NOT commit the real file to version control.
+#
+# Option A: OAuth2 Refresh Token (most common for single-user setups)
+developer_token: YOUR_DEVELOPER_TOKEN
+client_id: YOUR_OAUTH2_CLIENT_ID
+client_secret: YOUR_OAUTH2_CLIENT_SECRET
+refresh_token: YOUR_REFRESH_TOKEN
+use_proto_plus: True
+
+# Option B: Service Account (recommended for automated/server workflows)
+# developer_token: YOUR_DEVELOPER_TOKEN
+# json_key_file_path: /path/to/service-account-key.json
+# impersonated_email: user@yourdomain.com   # only if domain-wide delegation is needed
+# use_proto_plus: True
+
+# Manager account login (required if your developer token lives on an MCC)
+# login_customer_id: "1234567890"
+
+# Logging (optional)
+# logging:
+#   version: 1
+#   disable_existing_loggers: False
+#   handlers:
+#     default:
+#       class: logging.StreamHandler
+#       stream: ext://sys.stderr
+#   loggers:
+#     "": {handlers: [default]}
+#     "google.ads.googleads.client": {level: WARNING}

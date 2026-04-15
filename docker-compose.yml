@@ -1,0 +1,63 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# docker-compose.yml
+# Windows + Docker Desktop: run with  docker compose up -d
+#
+# Traffic flow:
+#   Internet → Cloudflare Edge (HTTPS) → cloudflared tunnel
+#   → nginx (internal :80) → fastapi (internal :8000)
+#
+# No ports exposed to the internet — tunnel is outbound-only.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── FastAPI / uvicorn ───────────────────────────────────────────────────────
+  fastapi:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      # Mount your real google-ads.yaml at runtime (never bake creds into image)
+      - ./google-ads.yaml:/app/google-ads.yaml:ro
+    expose:
+      - "8000"        # internal only — nginx is the only caller
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ── nginx reverse proxy ─────────────────────────────────────────────────────
+  nginx:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:80:80"   # localhost only — cloudflared is the public entry
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      fastapi:
+        condition: service_healthy
+
+  # ── Cloudflare Tunnel ────────────────────────────────────────────────────────
+  # QUICK TUNNEL MODE — no account, no domain, no token needed.
+  # Generates a free random HTTPS URL (e.g. https://xxxx.trycloudflare.com).
+  # URL is printed in the logs on startup — paste it into your Wix backend.
+  #
+  # To upgrade to a permanent named tunnel (api.ntari.org) once you have
+  # DNS control, replace the command with:
+  #   command: tunnel --no-autoupdate run
+  # and add:
+  #   environment:
+  #     - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://nginx:80
+    depends_on:
+      - nginx
+
+networks:
+  default:
+    name: google-ads-api-net

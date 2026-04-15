@@ -1,0 +1,350 @@
+/**
+ * googleAdsBackend.jsw  — Wix Velo backend module
+ *
+ * This file lives in your Wix site's backend/ directory.
+ * It wraps every endpoint of your Google Ads FastAPI service so your
+ * frontend pages (and other backend modules) can call it with a single import.
+ *
+ * Setup:
+ *   1. Deploy your FastAPI service (see deploy instructions in README).
+ *   2. In Wix Secrets Manager, create a secret named "GOOGLE_ADS_API_KEY"
+ *      whose value matches the API_SECRET_KEY in your .env file.
+ *   3. Set API_BASE_URL below to your deployed service URL.
+ *   4. Copy this file to: Backend/googleAdsBackend.jsw in your Wix editor.
+ *
+ * Usage from a Wix page or router:
+ *   import { listCampaigns, buildCampaign } from 'backend/googleAdsBackend';
+ */
+
+import { fetch } from 'wix-fetch';
+import { getSecret } from 'wix-secrets-backend';
+
+// ── Configuration ─────────────────────────────────────────────────────────────
+
+// Paste your quick tunnel URL here (from: docker compose logs cloudflared)
+// When you get a permanent domain, update this one line.
+const API_BASE_URL = 'https://wave-consolidation-interracial-edition.trycloudflare.com/api/v1';
+
+// ── Internal helpers ──────────────────────────────────────────────────────────
+
+async function apiRequest(method, path, body = null) {
+    const apiKey = await getSecret('GOOGLE_ADS_API_KEY');
+
+    const options = {
+        method,
+        headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': apiKey,
+        },
+    };
+
+    if (body !== null) {
+        options.body = JSON.stringify(body);
+    }
+
+    const response = await fetch(`${API_BASE_URL}${path}`, options);
+
+    if (!response.ok) {
+        let detail = `HTTP ${response.status}`;
+        try {
+            const err = await response.json();
+            detail = err.detail || JSON.stringify(err);
+        } catch (_) {}
+        throw new Error(`Google Ads API error: ${detail}`);
+    }
+
+    return response.json();
+}
+
+// ── Campaigns ─────────────────────────────────────────────────────────────────
+
+export async function listCampaigns(customerId) {
+    return apiRequest('GET', `/customers/${customerId}/campaigns/`);
+}
+
+export async function getCampaign(customerId, campaignId) {
+    return apiRequest('GET', `/customers/${customerId}/campaigns/${campaignId}`);
+}
+
+/**
+ * @param {string} customerId
+ * @param {Object} campaignData
+ * @param {string} campaignData.name
+ * @param {number} campaignData.daily_budget_micros  — 1 USD = 1,000,000 micros
+ * @param {string} [campaignData.bidding_strategy_type]  — default "MANUAL_CPC"
+ * @param {string} [campaignData.campaign_type]  — default "SEARCH"
+ * @param {boolean} [campaignData.ad_grants_account]  — enforces $2 CPC cap
+ * @param {number[]} [campaignData.geo_target_constant_ids]
+ * @param {number[]} [campaignData.language_constant_ids]
+ */
+export async function createCampaign(customerId, campaignData) {
+    return apiRequest('POST', `/customers/${customerId}/campaigns/`, campaignData);
+}
+
+export async function updateCampaign(customerId, campaignId, updates) {
+    return apiRequest('PATCH', `/customers/${customerId}/campaigns/${campaignId}`, updates);
+}
+
+export async function removeCampaign(customerId, campaignId) {
+    return apiRequest('DELETE', `/customers/${customerId}/campaigns/${campaignId}`);
+}
+
+// ── Ad Groups ─────────────────────────────────────────────────────────────────
+
+export async function listAdGroups(customerId, campaignId = null) {
+    const qs = campaignId ? `?campaign_id=${campaignId}` : '';
+    return apiRequest('GET', `/customers/${customerId}/ad-groups/${qs}`);
+}
+
+export async function getAdGroup(customerId, adGroupId) {
+    return apiRequest('GET', `/customers/${customerId}/ad-groups/${adGroupId}`);
+}
+
+/**
+ * @param {Object} adGroupData
+ * @param {string} adGroupData.campaign_id
+ * @param {string} adGroupData.name
+ * @param {number} [adGroupData.cpc_bid_micros]  — max 2,000,000 for Ad Grants
+ */
+export async function createAdGroup(customerId, adGroupData) {
+    return apiRequest('POST', `/customers/${customerId}/ad-groups/`, adGroupData);
+}
+
+export async function updateAdGroup(customerId, adGroupId, updates) {
+    return apiRequest('PATCH', `/customers/${customerId}/ad-groups/${adGroupId}`, updates);
+}
+
+export async function removeAdGroup(customerId, adGroupId) {
+    return apiRequest('DELETE', `/customers/${customerId}/ad-groups/${adGroupId}`);
+}
+
+// ── Keywords ──────────────────────────────────────────────────────────────────
+
+/**
+ * @param {Object} keywordData
+ * @param {string} keywordData.ad_group_id
+ * @param {string} keywordData.keyword_text
+ * @param {string} [keywordData.match_type]  — "BROAD" | "PHRASE" | "EXACT"
+ * @param {number} [keywordData.cpc_bid_micros]
+ */
+export async function addKeyword(customerId, keywordData) {
+    return apiRequest('POST', `/customers/${customerId}/keywords/`, keywordData);
+}
+
+/**
+ * @param {Object} bulkData
+ * @param {Array}  bulkData.keywords  — array of keyword objects
+ * @param {boolean} [bulkData.use_batch_job]  — default true for >500 keywords
+ */
+export async function addKeywordsBulk(customerId, bulkData) {
+    return apiRequest('POST', `/customers/${customerId}/keywords/bulk`, bulkData);
+}
+
+export async function addNegativeKeyword(customerId, negativeData) {
+    return apiRequest('POST', `/customers/${customerId}/keywords/negatives`, negativeData);
+}
+
+export async function createSharedNegativeList(customerId, listData) {
+    return apiRequest('POST', `/customers/${customerId}/keywords/shared-negative-lists`, listData);
+}
+
+export async function updateKeyword(customerId, updateData) {
+    return apiRequest('PATCH', `/customers/${customerId}/keywords/`, updateData);
+}
+
+export async function removeKeyword(customerId, adGroupId, criterionId) {
+    return apiRequest('DELETE', `/customers/${customerId}/keywords/${adGroupId}/${criterionId}`);
+}
+
+export async function getQualityScores(customerId, adGroupId) {
+    return apiRequest('GET', `/customers/${customerId}/keywords/quality-scores/${adGroupId}`);
+}
+
+// ── Responsive Search Ads ─────────────────────────────────────────────────────
+
+/**
+ * @param {Object} adData
+ * @param {string} adData.ad_group_id
+ * @param {Array}  adData.headlines  — 3–15 objects: {text, pinned_field?}
+ * @param {Array}  adData.descriptions  — 2–4 objects: {text, pinned_field?}
+ * @param {Array}  adData.final_urls
+ * @param {string} [adData.path1]  — max 15 chars
+ * @param {string} [adData.path2]  — max 15 chars
+ */
+export async function createRSA(customerId, adData) {
+    return apiRequest('POST', `/customers/${customerId}/ads/`, adData);
+}
+
+export async function listAds(customerId, adGroupId) {
+    return apiRequest('GET', `/customers/${customerId}/ads/?ad_group_id=${adGroupId}`);
+}
+
+export async function getAd(customerId, adId, adGroupId) {
+    return apiRequest('GET', `/customers/${customerId}/ads/${adId}?ad_group_id=${adGroupId}`);
+}
+
+export async function getAdPerformance(customerId, adId, adGroupId, dateRange = 'LAST_30_DAYS') {
+    return apiRequest(
+        'GET',
+        `/customers/${customerId}/ads/${adId}/performance?ad_group_id=${adGroupId}&date_range=${dateRange}`
+    );
+}
+
+export async function updateRSA(customerId, adId, adGroupId, updates) {
+    return apiRequest(
+        'PATCH',
+        `/customers/${customerId}/ads/${adId}?ad_group_id=${adGroupId}`,
+        updates
+    );
+}
+
+export async function removeAd(customerId, adId, adGroupId) {
+    return apiRequest(
+        'DELETE',
+        `/customers/${customerId}/ads/${adId}?ad_group_id=${adGroupId}`
+    );
+}
+
+// ── Assets ────────────────────────────────────────────────────────────────────
+
+/**
+ * @param {Object} assetData
+ * @param {string} assetData.asset_type  — "SITELINK" | "CALLOUT" | "CALL" | etc.
+ * @param {Object} assetData.sitelink    — when asset_type = "SITELINK"
+ * @param {Object} assetData.callout     — when asset_type = "CALLOUT"
+ * @param {Object} assetData.call        — when asset_type = "CALL"
+ * ... etc.
+ */
+export async function createAsset(customerId, assetData) {
+    return apiRequest('POST', `/customers/${customerId}/assets/`, assetData);
+}
+
+/**
+ * @param {Object} linkData
+ * @param {string} linkData.asset_resource_name
+ * @param {string} linkData.field_type   — "SITELINK" | "CALLOUT" | etc.
+ * @param {string} linkData.link_level   — "CUSTOMER" | "CAMPAIGN" | "AD_GROUP"
+ * @param {string} [linkData.campaign_id]
+ * @param {string} [linkData.ad_group_id]
+ */
+export async function linkAsset(customerId, linkData) {
+    return apiRequest('POST', `/customers/${customerId}/assets/link`, linkData);
+}
+
+export async function pauseAssetLink(customerId, assetLinkResourceName, linkLevel) {
+    return apiRequest(
+        'PATCH',
+        `/customers/${customerId}/assets/pause-link?asset_link_resource_name=${encodeURIComponent(assetLinkResourceName)}&link_level=${linkLevel}`
+    );
+}
+
+// ── Bidding Strategies ────────────────────────────────────────────────────────
+
+export async function listBiddingStrategies(customerId) {
+    return apiRequest('GET', `/customers/${customerId}/bidding-strategies/`);
+}
+
+/**
+ * @param {Object} strategyData
+ * @param {string} strategyData.name
+ * @param {string} strategyData.strategy_type  — "TARGET_CPA" | "TARGET_ROAS" | etc.
+ * @param {number} [strategyData.target_cpa_micros]
+ * @param {number} [strategyData.target_roas]
+ */
+export async function createPortfolioBiddingStrategy(customerId, strategyData) {
+    return apiRequest('POST', `/customers/${customerId}/bidding-strategies/`, strategyData);
+}
+
+export async function removeBiddingStrategy(customerId, strategyId) {
+    return apiRequest('DELETE', `/customers/${customerId}/bidding-strategies/${strategyId}`);
+}
+
+// ── Targeting ─────────────────────────────────────────────────────────────────
+
+/**
+ * @param {Object} geoData
+ * @param {number} geoData.geo_target_constant_id  — e.g. 1014221 for New York
+ * @param {string} [geoData.campaign_id]
+ * @param {string} [geoData.polarity]  — "POSITIVE" (default) | "NEGATIVE"
+ */
+export async function addGeoTarget(customerId, geoData) {
+    return apiRequest('POST', `/customers/${customerId}/targeting/geo`, geoData);
+}
+
+export async function addLanguageTarget(customerId, languageData) {
+    return apiRequest('POST', `/customers/${customerId}/targeting/language`, languageData);
+}
+
+export async function addDemographicTargets(customerId, demographicData) {
+    return apiRequest('POST', `/customers/${customerId}/targeting/demographics`, demographicData);
+}
+
+export async function setDeviceBidModifier(customerId, deviceData) {
+    return apiRequest('POST', `/customers/${customerId}/targeting/device`, deviceData);
+}
+
+export async function addAdSchedule(customerId, scheduleData) {
+    return apiRequest('POST', `/customers/${customerId}/targeting/schedule`, scheduleData);
+}
+
+export async function addAudienceTarget(customerId, audienceData) {
+    return apiRequest('POST', `/customers/${customerId}/targeting/audience`, audienceData);
+}
+
+// ── Batch Operations ──────────────────────────────────────────────────────────
+
+/**
+ * Build a complete campaign (budget → campaign → ad groups → ads → keywords)
+ * from a single JSON config object. Recommended for all new campaign creation.
+ *
+ * @param {string} customerId
+ * @param {Object} campaignConfig  — see /api/v1/customers/{id}/batch/build-campaign docs
+ * @param {boolean} [adGrantsAccount]  — enforce Ad Grants compliance if true
+ *
+ * Example campaignConfig:
+ * {
+ *   name: "Volunteer Recruitment",
+ *   daily_budget_micros: 10000000,
+ *   bidding_strategy_type: "MANUAL_CPC",
+ *   geo_target_constant_ids: [1014221],
+ *   language_constant_ids: [1000],
+ *   ad_groups: [{
+ *     name: "Volunteer Signup",
+ *     cpc_bid_micros: 1500000,
+ *     keywords: [
+ *       { text: "volunteer near me", match_type: "PHRASE" },
+ *       { text: "how to volunteer", match_type: "BROAD" }
+ *     ],
+ *     ads: [{
+ *       headlines: [
+ *         { text: "Volunteer With Us Today" },
+ *         { text: "Make a Real Difference" },
+ *         { text: "Join Our Volunteer Team" }
+ *       ],
+ *       descriptions: [
+ *         { text: "Sign up in minutes. Flexible hours available." },
+ *         { text: "Help your community. 100% free to join." }
+ *       ],
+ *       final_urls: ["https://example.org/volunteer"]
+ *     }]
+ *   }]
+ * }
+ */
+export async function buildCampaign(customerId, campaignConfig, adGrantsAccount = false) {
+    return apiRequest(
+        'POST',
+        `/customers/${customerId}/batch/build-campaign?ad_grants_account=${adGrantsAccount}`,
+        campaignConfig
+    );
+}
+
+export async function getBatchJobStatus(customerId, batchJobId) {
+    return apiRequest('GET', `/customers/${customerId}/batch/jobs/${batchJobId}/status`);
+}
+
+export async function getBatchJobResults(customerId, batchJobId, pageSize = 100) {
+    return apiRequest(
+        'GET',
+        `/customers/${customerId}/batch/jobs/${batchJobId}/results?page_size=${pageSize}`
+    );
+}
